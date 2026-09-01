@@ -65,6 +65,7 @@ export interface ProjectListItem {
   created_at: string;
   updated_at: string;
   story_count: number;
+  completed_story_count: number;
 }
 
 export interface TaskSummary {

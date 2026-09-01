@@ -72,16 +72,19 @@ export function DashboardPage() {
 
   // Aggregate stats
   const totalStories = projects.reduce((s, p) => s + (p.story_count ?? 0), 0);
-
-  // Mock completed for display (real data would come from aggregation endpoint)
-  const completedCount = 32;
-  const totalTasks = 68;
-  const completionPct = calcCompletionPercent(completedCount, totalTasks);
+  const completedStories = projects.reduce(
+    (s, p) => s + (p.completed_story_count ?? 0),
+    0
+  );
+  const completionPct = calcCompletionPercent(completedStories, totalStories);
 
   const pieData = [
-    { name: "Completed", value: completedCount, color: "#6366f1" },
-    { name: "In Progress", value: 21, color: "#f59e0b" },
-    { name: "To Do", value: 15, color: "#334155" },
+    { name: "Completed Stories", value: completedStories, color: "#6366f1" },
+    {
+      name: "Remaining Stories",
+      value: Math.max(0, totalStories - completedStories),
+      color: "#334155",
+    },
   ];
 
   const recentActivity = [
@@ -156,8 +159,8 @@ export function DashboardPage() {
             color="bg-orange-500"
           />
           <StatCard
-            label="Completed"
-            value={completedCount}
+            label="Completed Stories"
+            value={completedStories}
             icon={TrendingUp}
             color="bg-green-500"
           />
@@ -277,8 +280,8 @@ export function DashboardPage() {
           <div className="grid grid-cols-4 gap-4">
             {projects.slice(0, 4).map((project) => {
               const pct = calcCompletionPercent(
-                project.story_count ?? 0,
-                (project.story_count ?? 0) + 2
+                project.completed_story_count ?? 0,
+                project.story_count ?? 0
               );
               return (
                 <Card
