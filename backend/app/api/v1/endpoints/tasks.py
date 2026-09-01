@@ -1,12 +1,5 @@
 """
-Task API endpoints.
-
-Tasks are nested under stories which are under projects:
-  POST   /projects/{project_id}/stories/{story_id}/tasks
-  GET    /projects/{project_id}/stories/{story_id}/tasks
-  GET    /projects/{project_id}/stories/{story_id}/tasks/{task_id}
-  PATCH  /projects/{project_id}/stories/{story_id}/tasks/{task_id}
-  DELETE /projects/{project_id}/stories/{story_id}/tasks/{task_id}
+Task API endpoints - updated with async trigger.
 """
 from typing import Literal
 
@@ -17,6 +10,7 @@ from app.core.database import get_db
 from app.models.task import TaskStatus
 from app.schemas.common import PaginationParams, StatusMessage
 from app.schemas.task import TaskCreate, TaskListResponse, TaskResponse, TaskUpdate
+from app.services.job_service import JobService
 from app.services.task_service import TaskService
 
 router = APIRouter(
@@ -27,6 +21,10 @@ router = APIRouter(
 
 def get_task_service(db: AsyncSession = Depends(get_db)) -> TaskService:
     return TaskService(db)
+
+
+def get_job_service(db: AsyncSession = Depends(get_db)) -> JobService:
+    return JobService(db)
 
 
 @router.post(
@@ -48,7 +46,6 @@ async def create_task(
     "/",
     response_model=dict,
     summary="List tasks",
-    description="Returns paginated tasks for a user story.",
 )
 async def list_tasks(
     project_id: str,
@@ -91,16 +88,49 @@ async def get_task(
     "/{task_id}",
     response_model=TaskResponse,
     summary="Update a task",
-    description="Partial update. Status transitions are validated.",
+    description="""
+    Partial update with status transition validation.
+
+    **Auto-trigger:** When a task is marked as DONE,
+    a background job is automatically dispatched to check
+    if the parent story is ready for completion.
+    Check `GET /api/v1/jobs/` for the triggered job.
+    """,
 )
 async def update_task(
     project_id: str,
     story_id: str,
     task_id: str,
     data: TaskUpdate,
-    service: TaskService = Depends(get_task_service),
+    task_service: TaskService = Depends(get_task_service),
+    job_service: JobService = Depends(get_job_service),
 ) -> TaskResponse:
-    return await service.update_task(project_id, story_id, task_id, data)
+    # Get current task state before update
+    current_task = await task_service.get_task(project_id, story_id, task_id)
+    previous_status = current_task.status
+
+    # Perform the update
+    updated_task = await task_service.update_task(project_id, story_id, task_id, data)
+
+    # Auto-trigger story completion check when task is marked DONE
+    if (
+        data.status == TaskStatus.DONE
+        and previous_status != TaskStatus.DONE
+    ):
+        try:
+            await job_service.trigger_story_completion_check(
+                project_id=project_id,
+                story_id=story_id,
+                triggered_by="system:task_completion",
+            )
+        except Exception as e:
+            # Don't fail the task update if the background job fails to dispatch
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Failed to dispatch story completion check: {e}"
+            )
+
+    return updated_task
 
 
 @router.delete(
