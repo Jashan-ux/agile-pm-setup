@@ -61,3 +61,6 @@ dist/
 
 # OS
 Thumbs.db
+
+# Celery Beat runtime state
+backend/celerybeat-schedule.dat
